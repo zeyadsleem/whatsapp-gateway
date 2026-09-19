@@ -1,0 +1,485 @@
+openapi: 3.0.3
+info:
+  title: WhatsApp Gateway API
+  version: 1.0.0
+  description: |
+    Multi-tenant WhatsApp gateway for shops. Each shop links a WhatsApp number
+    as a Linked Device and sends messages through its own API key. Incoming
+    messages are forwarded to the shop webhook in real time.
+
+    Privacy: the gateway never stores message text, chat history or contacts.
+
+    Authentication:
+    - Admin endpoints: `Authorization: Bearer <ADMIN_API_KEY>`
+    - Shop endpoints: `Authorization: Bearer <SHOP_API_KEY>` (key determines the tenant)
+servers:
+  - url: /
+tags:
+  - name: Health
+  - name: Admin - Instances
+  - name: Shop - Messages
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Service health
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: Database unavailable
+  /metrics:
+    get:
+      tags: [Health]
+      summary: Prometheus metrics
+      description: Exposes aggregate counters only. No customer numbers or message content.
+      responses:
+        "200":
+          description: Prometheus text exposition
+  /api/v1/admin/stats:
+    get:
+      tags: [Admin - Instances]
+      summary: Aggregate dashboard counters
+      security: [{ adminKey: [] }]
+      responses:
+        "200":
+          description: Counters by status and message totals
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Stats" }
+  /api/v1/admin/instances:
+    get:
+      tags: [Admin - Instances]
+      summary: List instances
+      security: [{ adminKey: [] }]
+      responses:
+        "200":
+          description: Instance list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instances:
+                    type: array
+                    items: { $ref: "#/components/schemas/Instance" }
+    post:
+      tags: [Admin - Instances]
+      summary: Create an instance
+      description: |
+        Creates a shop instance and returns the shop API key and webhook secret
+        exactly once. Store them securely; they cannot be retrieved again.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateInstanceRequest" }
+            example:
+              shop_id: shop_125
+              display_name: فرع مدينة نصر
+              webhook_url: https://example.com/webhooks/whatsapp
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateInstanceResponse" }
+        "409":
+          description: Duplicate shop_id or instance limit reached
+  /api/v1/admin/instances/{id}:
+    parameters:
+      - $ref: "#/components/parameters/InstanceID"
+    get:
+      tags: [Admin - Instances]
+      summary: Get one instance
+      security: [{ adminKey: [] }]
+      responses:
+        "200":
+          description: Instance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Instance" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Admin - Instances]
+      summary: Update instance metadata or webhook
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateInstanceRequest" }
+      responses:
+        "200": { description: Updated }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Admin - Instances]
+      summary: Delete instance and its WhatsApp session
+      description: Removes the instance, its API key and the whatsmeow protocol state. This cannot be undone.
+      security: [{ adminKey: [] }]
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/instances/{id}/webhook:
+    parameters:
+      - $ref: "#/components/parameters/InstanceID"
+    put:
+      tags: [Admin - Instances]
+      summary: Configure webhook
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateWebhookRequest" }
+            example:
+              webhook_url: https://example.com/webhooks/whatsapp
+              webhook_enabled: true
+              rotate_webhook_secret: false
+      responses:
+        "200":
+          description: Updated. Returns webhook_secret only when newly generated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instance: { $ref: "#/components/schemas/Instance" }
+                  webhook_secret: { type: string }
+  /api/v1/admin/instances/{id}/connect:
+    parameters:
+      - $ref: "#/components/parameters/InstanceID"
+    post:
+      tags: [Admin - Instances]
+      summary: Connect instance or start QR pairing
+      security: [{ adminKey: [] }]
+      responses:
+        "202":
+          description: Connection or pairing started
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/instances/{id}/qr:
+    parameters:
+      - $ref: "#/components/parameters/InstanceID"
+    get:
+      tags: [Admin - Instances]
+      summary: Get current pairing QR code
+      description: |
+        Returns the current QR as a raw string, a base64 PNG data URL and its
+        expiry. When no QR is active yet, pairing is started and `202` is
+        returned; poll until a code appears. Use `?format=png` for image/png.
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: format
+          in: query
+          schema: { type: string, enum: [json, png] }
+          description: Set to `png` to receive the raw PNG image.
+      responses:
+        "200":
+          description: QR available or instance connected
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QRResponse" }
+        "202":
+          description: Pairing is starting, retry shortly
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/instances/{id}/restart:
+    parameters:
+      - $ref: "#/components/parameters/InstanceID"
+    post:
+      tags: [Admin - Instances]
+      summary: Restart the WhatsApp connection
+      security: [{ adminKey: [] }]
+      responses:
+        "202": { description: Restarting }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/instances/{id}/disconnect:
+    parameters:
+      - $ref: "#/components/parameters/InstanceID"
+    post:
+      tags: [Admin - Instances]
+      summary: Disconnect temporarily, keeping the session
+      description: Closes the socket. The session stays valid and connect can resume without a QR.
+      security: [{ adminKey: [] }]
+      responses:
+        "202": { description: Disconnected }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/instances/{id}/logout:
+    parameters:
+      - $ref: "#/components/parameters/InstanceID"
+    post:
+      tags: [Admin - Instances]
+      summary: Log out and unlink the device
+      description: Removes the linked device on WhatsApp and deletes the local session. A new QR is required to pair again.
+      security: [{ adminKey: [] }]
+      responses:
+        "200": { description: Logged out }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/instances/{id}/api-key/rotate:
+    parameters:
+      - $ref: "#/components/parameters/InstanceID"
+    post:
+      tags: [Admin - Instances]
+      summary: Rotate the shop API key
+      security: [{ adminKey: [] }]
+      responses:
+        "200":
+          description: New key. It is shown once.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_key: { type: string }
+  /api/v1/messages/text:
+    post:
+      tags: [Shop - Messages]
+      summary: Send a text message
+      security: [{ shopKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SendTextRequest" }
+            example:
+              to: "201001234567"
+              text: "موعدك غدًا الساعة 6. رد 1 للتأكيد."
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: Instance is not connected }
+        "429": { description: Rate limited }
+  /api/v1/messages/image:
+    post:
+      tags: [Shop - Messages]
+      summary: Send an image
+      description: |
+        Accepts either `multipart/form-data` with a `file` part plus `to` and
+        `caption` fields, or JSON with `to`, `url` and `caption`. URL fetching is
+        restricted to public HTTP(S) hosts. Media is streamed, never persisted.
+      security: [{ shopKey: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [to, file]
+              properties:
+                to: { type: string, example: "201001234567" }
+                caption: { type: string }
+                file: { type: string, format: binary }
+          application/json:
+            schema:
+              type: object
+              required: [to, url]
+              properties:
+                to: { type: string, example: "201001234567" }
+                url: { type: string, format: uri }
+                caption: { type: string }
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendResponse" }
+        "413": { description: Media too large }
+        "415": { description: Unsupported media type }
+  /api/v1/messages/document:
+    post:
+      tags: [Shop - Messages]
+      summary: Send a document
+      description: |
+        Accepts `multipart/form-data` with a `file` part plus `to`, `filename`,
+        `mime` and `caption` fields, or JSON with `to`, `url`, `filename`,
+        `mime` and `caption`. Executable file types are rejected.
+      security: [{ shopKey: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [to, file]
+              properties:
+                to: { type: string }
+                filename: { type: string }
+                mime: { type: string }
+                caption: { type: string }
+                file: { type: string, format: binary }
+          application/json:
+            schema:
+              type: object
+              required: [to, url]
+              properties:
+                to: { type: string }
+                url: { type: string, format: uri }
+                filename: { type: string }
+                mime: { type: string }
+                caption: { type: string }
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendResponse" }
+        "413": { description: Media too large }
+        "415": { description: Unsupported media type }
+components:
+  securitySchemes:
+    adminKey:
+      type: http
+      scheme: bearer
+      description: Admin API key from the `ADMIN_API_KEY` environment variable.
+    shopKey:
+      type: http
+      scheme: bearer
+      description: Per-shop API key issued at instance creation.
+  parameters:
+    InstanceID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: X-Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string }
+      description: Optional shop-side idempotency key for correlating requests.
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: validation_error }
+            message: { type: string }
+    Health:
+      type: object
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        uptime_seconds: { type: integer, format: int64 }
+        database: { type: string, enum: [up, down] }
+        instances:
+          type: object
+          properties:
+            total: { type: integer }
+            connected: { type: integer }
+            disconnected: { type: integer }
+            qr_required: { type: integer }
+        version: { type: string }
+    Stats:
+      type: object
+      properties:
+        total: { type: integer }
+        by_status:
+          type: object
+          additionalProperties: { type: integer }
+        sent_ok: { type: integer, format: int64 }
+        sent_failed: { type: integer, format: int64 }
+        received: { type: integer, format: int64 }
+    Instance:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        shop_id: { type: string, example: shop_125 }
+        display_name: { type: string }
+        phone_number: { type: string, nullable: true, description: The shop WhatsApp number, shown after pairing. }
+        status:
+          type: string
+          enum: [disconnected, connecting, qr_required, connected, reconnecting, logged_out, error]
+        last_error: { type: string }
+        webhook_url: { type: string, nullable: true }
+        webhook_enabled: { type: boolean }
+        api_key_prefix: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_connected_at: { type: string, format: date-time, nullable: true }
+    CreateInstanceRequest:
+      type: object
+      required: [shop_id, display_name]
+      properties:
+        shop_id:
+          type: string
+          pattern: "^[A-Za-z0-9._-]{1,64}$"
+        display_name: { type: string, maxLength: 128 }
+        webhook_url: { type: string, format: uri, nullable: true }
+        webhook_enabled: { type: boolean, default: true }
+    CreateInstanceResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        shop_id: { type: string }
+        display_name: { type: string }
+        status: { type: string }
+        webhook_url: { type: string, nullable: true }
+        webhook_enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        api_key: { type: string, description: Shown once. Store securely. }
+        webhook_secret: { type: string, description: Shown once. Used for HMAC verification. }
+    UpdateInstanceRequest:
+      type: object
+      properties:
+        display_name: { type: string, maxLength: 128 }
+        webhook_url: { type: string, format: uri, nullable: true }
+        webhook_enabled: { type: boolean }
+        rotate_webhook_secret: { type: boolean }
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        webhook_url: { type: string, format: uri, nullable: true }
+        webhook_enabled: { type: boolean }
+        rotate_webhook_secret: { type: boolean }
+    QRResponse:
+      type: object
+      properties:
+        status: { type: string }
+        connected: { type: boolean }
+        qr_code: { type: string, description: Raw QR payload. Never logged by the server. }
+        qr_png_base64: { type: string, description: "data:image/png;base64,..." }
+        expires_at: { type: string, format: date-time }
+    SendTextRequest:
+      type: object
+      required: [to, text]
+      properties:
+        to:
+          type: string
+          description: Destination in international format without "+". Spaces, dashes and parentheses are accepted.
+          example: "201001234567"
+        text:
+          type: string
+          maxLength: 20000
+    SendResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        message_id: { type: string }
+        timestamp: { type: string, format: date-time }

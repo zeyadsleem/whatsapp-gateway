@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.env.local
+bin/
+tmp/
+web/admin/node_modules
+web/admin/dist
+docs
+*.md
+!README.md
+!PRIVACY.md
+!SECURITY.md
