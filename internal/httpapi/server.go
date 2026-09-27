@@ -150,8 +150,8 @@ func (s *Server) registerMessageRoutes(r *gin.Engine) {
 	group := r.Group("/api/v1/messages")
 	group.Use(
 		bodyLimit(s.messages.MaxUploadBytes()+1024*1024),
-		s.middlewareRateLimitShop(),
 		s.middlewareAuthShop(),
+		s.middlewareRateLimitShop(),
 	)
 	group.POST("/text", s.handleSendText)
 	group.POST("/image", s.handleSendImage)

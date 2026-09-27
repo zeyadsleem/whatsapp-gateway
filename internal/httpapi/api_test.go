@@ -426,6 +426,30 @@ func TestRateLimiting(t *testing.T) {
 	}
 }
 
+func TestRateLimitingIsolatesShopKeys(t *testing.T) {
+	e := newTestEnv(t, "httpapi_rate_isolation", testAdminKey, 0.001, 1)
+	a := createInstance(t, e, "rate_a", "")
+	b := createInstance(t, e, "rate_b", "")
+	body := map[string]any{"to": "201001234567", "text": "hi"}
+	for _, tc := range []struct {
+		key  string
+		want int
+	}{
+		{"", http.StatusUnauthorized},
+		{"invalid-key", http.StatusUnauthorized},
+		{a["api_key"].(string), http.StatusConflict},
+		{a["api_key"].(string), http.StatusTooManyRequests},
+		{b["api_key"].(string), http.StatusConflict},
+		{b["api_key"].(string), http.StatusTooManyRequests},
+		{"invalid-key", http.StatusUnauthorized},
+	} {
+		resp, raw := e.do(t, http.MethodPost, "/api/v1/messages/text", tc.key, body)
+		if resp.StatusCode != tc.want {
+			t.Fatalf("status = %d, want %d; body=%s", resp.StatusCode, tc.want, raw)
+		}
+	}
+}
+
 func TestUnknownRoutesAndMethods(t *testing.T) {
 	e := newTestEnv(t, "httpapi_routes", testAdminKey, 100, 100)
 	resp, _ := e.do(t, http.MethodGet, "/api/v1/admin/nope", testAdminKey, nil)

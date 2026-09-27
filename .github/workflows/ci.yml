@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: gateway_test
+          POSTGRES_PASSWORD: local-test-only
+          POSTGRES_DB: gateway_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gateway_test -d gateway_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://gateway_test:local-test-only@localhost:5432/gateway_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l cmd internal web/admin/embed.go)"
+      - name: Vet
+        run: go vet ./...
+      - name: Unit and PostgreSQL integration tests with race detector
+        run: go test -race -count=1 ./...
+      - name: Build server
+        run: go build ./cmd/server

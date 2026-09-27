@@ -128,7 +128,7 @@ during a retry, that event is dropped by design.
 
 ## Development
 
-Requires Go 1.24+, Node 22+ with pnpm, and a PostgreSQL instance for
+Requires Go 1.27.1+, Node 22+ with pnpm, and a PostgreSQL instance for
 integration tests.
 
 ```bash
@@ -143,6 +143,9 @@ make privacy-audit  # inspect a running database for forbidden tables/columns
 
 Integration tests create and drop an isolated database per test package, so
 `TEST_DATABASE_URL` needs `CREATEDB` privileges.
+
+GitHub Actions runs formatting checks, `go vet`, the full test suite with the
+race detector and PostgreSQL 16, and a server build on pull requests.
 
 Architecture and database design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

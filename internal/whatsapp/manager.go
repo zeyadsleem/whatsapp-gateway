@@ -137,7 +137,6 @@ func (m *Manager) RestoreAll(ctx context.Context, instances []InstanceInfo) {
 			m.log.Warn("failed to start restored instance", "instance", info.ShopID, "event", "restore", "result", "failure", "error", err)
 			continue
 		}
-		client.setStatus(StatusConnecting, nil)
 		m.log.Info("restored instance session, reconnecting", "instance", info.ShopID, "event", "restore", "result", "success")
 	}
 }

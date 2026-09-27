@@ -41,6 +41,35 @@ func NewService(repo *database.InstanceRepo, keys *database.APIKeyRepo, manager 
 	return &Service{repo: repo, keys: keys, manager: manager, box: box, log: log}
 }
 
+// Restore registers every persisted instance before the API starts accepting
+// requests. Only paired instances outside the error/logged-out states should
+// reconnect automatically; the others remain available for manual pairing.
+func (s *Service) Restore(ctx context.Context) ([]whatsapp.InstanceInfo, error) {
+	rows, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load persisted instances: %w", err)
+	}
+	reconnect := make([]whatsapp.InstanceInfo, 0, len(rows))
+	for _, inst := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		info := whatsapp.InstanceInfo{
+			ID: inst.ID, ShopID: inst.ShopID, DisplayName: inst.DisplayName,
+		}
+		if inst.WAJID != nil {
+			info.WAJID = *inst.WAJID
+		}
+		if _, err := s.manager.Register(info); err != nil {
+			return nil, fmt.Errorf("restore instance %s: %w", inst.ID, err)
+		}
+		if info.WAJID != "" && inst.Status != database.StatusLoggedOut && inst.Status != database.StatusError {
+			reconnect = append(reconnect, info)
+		}
+	}
+	return reconnect, nil
+}
+
 type CreateInput struct {
 	ShopID         string `json:"shop_id"`
 	DisplayName    string `json:"display_name"`

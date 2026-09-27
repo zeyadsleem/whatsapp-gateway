@@ -89,6 +89,9 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrNoDevice, err)
 		}
+		if device == nil {
+			return nil, ErrNoDevice
+		}
 	} else {
 		device = opts.Container.NewDevice()
 	}
