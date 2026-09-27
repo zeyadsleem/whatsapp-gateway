@@ -142,10 +142,10 @@ disconnected ──connect()──> connecting ──QR event──> qr_required
 
 ### Startup restore
 
-1. Load all instances with `wa_jid` set and status in (`connected`, `disconnected`, `reconnecting`).
-2. `sqlstore.Container.GetDevice(ctx, jid)` loads the persisted device.
-3. Build a whatsmeow client and `Connect()` — no QR needed while the session is valid.
-4. Instances without `wa_jid` (or with `logged_out`/`error`) stay idle until an admin connects them.
+1. Load and register **all** persisted instances before the HTTP API accepts requests.
+2. For instances with `wa_jid`, `sqlstore.Container.GetDevice(ctx, jid)` loads the persisted device. An absent session produces an explicit startup error rather than silently replacing it.
+3. In the background, reconnect instances with a saved identity whose persisted status is neither `logged_out` nor `error` — no QR needed while the session is valid.
+4. Instances without `wa_jid` (or with `logged_out`/`error`) stay idle and remain available for admin lifecycle operations. Startup does not start QR pairing for them.
 
 ### Reconnect policy
 
@@ -159,7 +159,7 @@ disconnected ──connect()──> connecting ──QR event──> qr_required
 
 - `client.GetQRChannel(ctx)` **before** `Connect()`; the channel is only valid when `Store.ID == nil`.
 - QR codes rotate every 20–60s. When the channel closes with `timeout`, the manager re-creates the pairing client and starts a fresh channel (bounded attempts / overall pairing window) so the admin screen always has a live code.
-- On `PairSuccess`, the manager persists `wa_jid` + `phone_number`, transitions to `connected`, and fires the `instance.connected` webhook.
+- On `PairSuccess`, the client updates its in-memory identity and transitions to `connecting`. On `Connected`, it persists `wa_jid` + `phone_number`, transitions to `connected`, and fires the `instance.connected` webhook.
 - Passkey-based pairing is not supported in the MVP; the API reports a clear error if the phone requests it.
 
 ## Request flows

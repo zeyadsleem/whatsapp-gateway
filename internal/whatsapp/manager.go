@@ -10,10 +10,11 @@ import (
 )
 
 type InstanceInfo struct {
-	ID          string
-	ShopID      string
-	DisplayName string
-	WAJID       string
+	ID            string
+	ShopID        string
+	DisplayName   string
+	WAJID         string
+	InitialStatus string
 }
 
 type ManagerOptions struct {
@@ -65,17 +66,18 @@ func (m *Manager) Register(info InstanceInfo) (*Client, error) {
 		return nil, ErrMaxInstances
 	}
 	client, err := NewClient(ClientOptions{
-		ID:          info.ID,
-		ShopID:      info.ShopID,
-		DisplayName: info.DisplayName,
-		RestoreJID:  info.WAJID,
-		Container:   m.container,
-		Repo:        m.repo,
-		Notifier:    m.notifier,
-		Log:         m.log,
-		SendTimeout: m.sendTimeout,
-		Parent:      m.ctx,
-		WG:          &m.wg,
+		ID:            info.ID,
+		ShopID:        info.ShopID,
+		DisplayName:   info.DisplayName,
+		RestoreJID:    info.WAJID,
+		InitialStatus: info.InitialStatus,
+		Container:     m.container,
+		Repo:          m.repo,
+		Notifier:      m.notifier,
+		Log:           m.log,
+		SendTimeout:   m.sendTimeout,
+		Parent:        m.ctx,
+		WG:            &m.wg,
 	})
 	if err != nil {
 		return nil, err
@@ -123,21 +125,20 @@ func (m *Manager) Statuses() map[string]Status {
 	return out
 }
 
-func (m *Manager) RestoreAll(ctx context.Context, instances []InstanceInfo) {
+func (m *Manager) ReconnectAll(ctx context.Context, instances []InstanceInfo) {
 	for _, info := range instances {
 		if ctx.Err() != nil {
 			return
 		}
-		client, err := m.Register(info)
-		if err != nil {
-			m.log.Error("failed to restore instance", "instance", info.ShopID, "event", "restore", "result", "failure", "error", err)
+		client, ok := m.Get(info.ID)
+		if !ok {
+			// An admin may have deleted it after startup registration.
 			continue
 		}
 		if err := client.Connect(ctx); err != nil {
 			m.log.Warn("failed to start restored instance", "instance", info.ShopID, "event", "restore", "result", "failure", "error", err)
 			continue
 		}
-		client.setStatus(StatusConnecting, nil)
 		m.log.Info("restored instance session, reconnecting", "instance", info.ShopID, "event", "restore", "result", "success")
 	}
 }

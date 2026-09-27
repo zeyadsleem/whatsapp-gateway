@@ -65,17 +65,18 @@ type Client struct {
 }
 
 type ClientOptions struct {
-	ID          string
-	ShopID      string
-	DisplayName string
-	RestoreJID  string
-	Container   *sqlstore.Container
-	Repo        Repository
-	Notifier    Notifier
-	Log         *slog.Logger
-	SendTimeout time.Duration
-	Parent      context.Context
-	WG          *sync.WaitGroup
+	ID            string
+	ShopID        string
+	DisplayName   string
+	RestoreJID    string
+	InitialStatus string
+	Container     *sqlstore.Container
+	Repo          Repository
+	Notifier      Notifier
+	Log           *slog.Logger
+	SendTimeout   time.Duration
+	Parent        context.Context
+	WG            *sync.WaitGroup
 }
 
 func NewClient(opts ClientOptions) (*Client, error) {
@@ -88,6 +89,9 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		device, err = opts.Container.GetDevice(opts.Parent, jid)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrNoDevice, err)
+		}
+		if device == nil {
+			return nil, ErrNoDevice
 		}
 	} else {
 		device = opts.Container.NewDevice()
@@ -108,7 +112,10 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	}
 	c.wa = whatsmeow.NewClient(device, logger.WhatsAppLogger(c.log, "client"))
 	c.wa.AddEventHandler(c.handleEvent)
-	metrics.Instances.WithLabelValues(StatusDisconnected).Inc()
+	if opts.InitialStatus == StatusLoggedOut || opts.InitialStatus == StatusError {
+		c.status = opts.InitialStatus
+	}
+	metrics.Instances.WithLabelValues(c.status).Inc()
 	return c, nil
 }
 

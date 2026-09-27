@@ -96,8 +96,13 @@ func run() error {
 		SendTimeout:  cfg.SendTimeout,
 		MaxInstances: cfg.MaxInstances,
 	})
+	defer manager.Shutdown(5 * time.Second)
 
 	instanceSvc := instance.NewService(repo, keyRepo, manager, box, log)
+	reconnect, err := instanceSvc.Restore(startCtx)
+	if err != nil {
+		return fmt.Errorf("restore instances: %w", err)
+	}
 	messageSvc := message.NewService(manager, cfg.MaxUploadBytes, log)
 
 	server := httpapi.New(httpapi.Deps{
@@ -110,7 +115,7 @@ func run() error {
 		Manager:   manager,
 	})
 
-	go manager.RestoreAll(ctx, restorableInstances(startCtx, repo, log))
+	go manager.ReconnectAll(ctx, reconnect)
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -157,25 +162,4 @@ func openWhatsAppStore(ctx context.Context, cfg *config.Config, log *slog.Logger
 		return nil, nil, fmt.Errorf("upgrade whatsapp store: %w", err)
 	}
 	return container, waSQLDB, nil
-}
-
-func restorableInstances(ctx context.Context, repo *database.InstanceRepo, log *slog.Logger) []whatsapp.InstanceInfo {
-	rows, err := repo.ListRestorable(ctx)
-	if err != nil {
-		log.Error("failed to load restorable instances", "event", "restore", "result", "failure", "error", err)
-		return nil
-	}
-	out := make([]whatsapp.InstanceInfo, 0, len(rows))
-	for _, inst := range rows {
-		if inst.WAJID == nil {
-			continue
-		}
-		out = append(out, whatsapp.InstanceInfo{
-			ID:          inst.ID,
-			ShopID:      inst.ShopID,
-			DisplayName: inst.DisplayName,
-			WAJID:       *inst.WAJID,
-		})
-	}
-	return out
 }

@@ -49,7 +49,6 @@ func (c *Client) onConnected() {
 	c.mu.Lock()
 	c.manualDisconnect = false
 	c.loggedOut = false
-	previousPhone := c.phone
 	if id := c.wa.Store.ID; id != nil {
 		c.waJID = id.String()
 		c.phone = id.User
@@ -60,7 +59,9 @@ func (c *Client) onConnected() {
 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), persistTimeout)
 	defer cancel()
-	if phone != "" && phone != previousPhone {
+	// PairSuccess already fills c.phone, so comparing it with the in-memory
+	// value would skip the first durable write of the paired identity.
+	if phone != "" {
 		if err := c.repo.SetIdentity(ctx, c.id, waJID, phone); err != nil {
 			c.log.Error("failed to persist instance identity", "event", "persist_identity", "result", "failure", "error", err)
 		}
