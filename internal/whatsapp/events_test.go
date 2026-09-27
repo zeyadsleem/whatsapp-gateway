@@ -43,3 +43,16 @@ func TestConnectedPersistsIdentityAfterPairSuccess(t *testing.T) {
 		t.Fatalf("paired identity not persisted: jid=%q phone=%q", repo.jid, repo.phone)
 	}
 }
+
+func TestReconnectSkipsInstancesRemovedAfterRegistration(t *testing.T) {
+	m := NewManager(ManagerOptions{
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), MaxInstances: 10,
+	})
+	defer m.Shutdown(time.Second)
+	// A snapshot can still contain an instance removed by an admin before
+	// background reconnection reaches it. It must not be registered again.
+	m.ReconnectAll(t.Context(), []InstanceInfo{{ID: "removed", WAJID: "201001234567@s.whatsapp.net"}})
+	if m.Count() != 0 {
+		t.Fatal("reconnection recreated a removed instance")
+	}
+}

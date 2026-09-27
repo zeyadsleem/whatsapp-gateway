@@ -32,6 +32,7 @@ func TestRestoreRegistersAllInstancesWithoutStartingPairing(t *testing.T) {
 		database.StatusError,
 	}
 	wantReconnect := make(map[string]bool)
+	wantStatus := make(map[string]string)
 	var ids []string
 	for i, status := range statuses {
 		for _, paired := range []bool{false, true} {
@@ -61,6 +62,10 @@ func TestRestoreRegistersAllInstancesWithoutStartingPairing(t *testing.T) {
 				}
 			}
 			ids = append(ids, inst.ID)
+			wantStatus[inst.ID] = database.StatusDisconnected
+			if status == database.StatusLoggedOut || status == database.StatusError {
+				wantStatus[inst.ID] = status
+			}
 		}
 	}
 	reconnect, err := svc.Restore(t.Context())
@@ -81,6 +86,9 @@ func TestRestoreRegistersAllInstancesWithoutStartingPairing(t *testing.T) {
 		client, ok := manager.Get(id)
 		if !ok || client.IsConnected() {
 			t.Fatalf("instance %s must be registered but offline", id)
+		}
+		if got := client.Snapshot().Status; got != wantStatus[id] {
+			t.Fatalf("restored status = %q, want %q", got, wantStatus[id])
 		}
 		if _, _, err := client.QR(); err == nil {
 			t.Fatal("restore must not start QR pairing")

@@ -56,6 +56,7 @@ func (s *Service) Restore(ctx context.Context) ([]whatsapp.InstanceInfo, error) 
 		}
 		info := whatsapp.InstanceInfo{
 			ID: inst.ID, ShopID: inst.ShopID, DisplayName: inst.DisplayName,
+			InitialStatus: inst.Status,
 		}
 		if inst.WAJID != nil {
 			info.WAJID = *inst.WAJID

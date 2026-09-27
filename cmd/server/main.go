@@ -115,7 +115,7 @@ func run() error {
 		Manager:   manager,
 	})
 
-	go manager.RestoreAll(ctx, reconnect)
+	go manager.ReconnectAll(ctx, reconnect)
 
 	serverErr := make(chan error, 1)
 	go func() {
